@@ -1,0 +1,112 @@
+# ci/pipeline-ci.yaml
+# CI pipeline: on any code push, build the Fedora image, push :latest and :<short-sha>
+# to Quay, then restart the dev deployment to pick up the new image.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: prefetcharr-ci
+spec:
+  params:
+    - name: repo-url
+      type: string
+    - name: revision
+      type: string
+      default: latest
+    - name: quay-registry
+      type: string
+      default: quay.nekohouse.ca:8443
+    - name: quay-credentials-secret
+      type: string
+      default: quay-push-secret
+      description: "Secret with .dockerconfigjson for Quay push access"
+
+  workspaces:
+    - name: source
+
+  tasks:
+    - name: clone
+      taskRef:
+        resolver: cluster
+        params:
+          - {name: kind, value: task}
+          - {name: name, value: git-clone}
+          - {name: namespace, value: openshift-pipelines}
+      workspaces:
+        - name: output
+          workspace: source
+      params:
+        - {name: url, value: $(params.repo-url)}
+        - {name: revision, value: $(params.revision)}
+
+    - name: build-push
+      runAfter: [clone]
+      workspaces:
+        - name: source
+          workspace: source
+          mountPath: /workspace
+      taskSpec:
+        workspaces:
+          - name: source
+            mountPath: /workspace
+        params:
+          - name: revision
+          - name: quay-registry
+          - name: quay-credentials-secret
+        volumes:
+          - name: quay-auth
+            secret:
+              secretName: $(params.quay-credentials-secret)
+              items:
+                - key: .dockerconfigjson
+                  path: config.json
+        steps:
+          - name: build-and-push
+            image: quay.nekohouse.ca:8443/ci-framework/x86:latest
+            workingDir: /workspace
+            securityContext:
+              privileged: true
+            volumeMounts:
+              - name: quay-auth
+                mountPath: /root/.docker
+                readOnly: true
+            env:
+              - name: REVISION
+                value: $(params.revision)
+              - name: REGISTRY
+                value: $(params.quay-registry)
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+
+              SHORT_SHA="${REVISION:0:8}"
+              IMAGE="${REGISTRY}/init/prefetcharr"
+
+              echo "=== Building ${IMAGE}:${SHORT_SHA} and :latest ==="
+              podman build \
+                --tls-verify=false \
+                -f Dockerfile.prefetcharr \
+                -t "${IMAGE}:latest" \
+                -t "${IMAGE}:${SHORT_SHA}" \
+                .
+
+              echo "=== Pushing ${IMAGE}:${SHORT_SHA} ==="
+              podman push --tls-verify=false "${IMAGE}:${SHORT_SHA}"
+
+              echo "=== Pushing ${IMAGE}:latest ==="
+              podman push --tls-verify=false "${IMAGE}:latest"
+      params:
+        - {name: revision, value: $(params.revision)}
+        - {name: quay-registry, value: $(params.quay-registry)}
+        - {name: quay-credentials-secret, value: $(params.quay-credentials-secret)}
+
+    - name: rollout-restart
+      runAfter: [build-push]
+      taskSpec:
+        steps:
+          - name: restart
+            image: registry.redhat.io/openshift4/ose-cli:latest
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              oc rollout restart deployment/prefetcharr-dev -n servarr
+              oc rollout status deployment/prefetcharr-dev -n servarr --timeout=5m || true
