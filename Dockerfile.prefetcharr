@@ -1,0 +1,32 @@
+# Fedora-based multi-stage build of prefetcharr.
+# Keeps the runtime image consistent with other arr-stack services
+# (prowlarr, sonarr, radarr) which are all Fedora 43.
+
+# ---------- Builder stage ----------
+FROM registry.fedoraproject.org/fedora:43 AS builder
+
+RUN dnf install -y \
+      rust \
+      cargo \
+      gcc \
+      openssl-devel \
+      pkgconf-pkg-config \
+    && dnf clean all
+
+WORKDIR /src
+COPY . .
+
+RUN cargo build --release --locked
+
+# ---------- Runtime stage ----------
+FROM registry.fedoraproject.org/fedora:43
+
+RUN dnf install -y \
+      ca-certificates \
+      openssl \
+    && dnf clean all
+
+COPY --from=builder /src/target/release/prefetcharr /usr/local/bin/prefetcharr
+
+ENTRYPOINT ["/usr/local/bin/prefetcharr"]
+CMD ["--config", "/etc/prefetcharr/config.toml"]
