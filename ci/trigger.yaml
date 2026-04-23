@@ -1,0 +1,111 @@
+# ci/trigger.yaml
+# EventListener with two Triggers on the same GitHub webhook:
+#   - Code pushes (any file outside .beads/) → prefetcharr-ci pipeline
+#   - .beads/ pushes                         → prefetcharr-agent pipeline
+# Register the EventListener Route URL as a GitHub webhook (Content-Type: application/json).
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: prefetcharr-listener
+  namespace: servarr
+spec:
+  serviceAccountName: pipeline
+  triggers:
+    - name: ci-on-code-push
+      interceptors:
+        - ref:
+            name: cel
+          params:
+            - name: filter
+              value: >
+                body.commits.exists(c,
+                  (c.added + c.modified + c.removed).exists(f,
+                    !f.startsWith('.beads/')))
+      bindings:
+        - ref: prefetcharr-github-push-binding
+      template:
+        ref: prefetcharr-ci-pipeline-template
+
+    - name: agent-on-issue-push
+      interceptors:
+        - ref:
+            name: cel
+          params:
+            - name: filter
+              value: >
+                body.commits.exists(c,
+                  (c.added + c.modified + c.removed).exists(f,
+                    f.startsWith('.beads/')))
+      bindings:
+        - ref: prefetcharr-github-push-binding
+      template:
+        ref: prefetcharr-agent-pipeline-template
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: prefetcharr-github-push-binding
+  namespace: servarr
+spec:
+  params:
+    - name: repo-url
+      value: $(body.repository.clone_url)
+    - name: revision
+      value: $(body.after)
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: prefetcharr-ci-pipeline-template
+  namespace: servarr
+spec:
+  params:
+    - name: repo-url
+    - name: revision
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: prefetcharr-ci-
+      spec:
+        pipelineRef:
+          name: prefetcharr-ci
+        params:
+          - name: repo-url
+            value: $(tt.params.repo-url)
+          - name: revision
+            value: $(tt.params.revision)
+        workspaces:
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources:
+                  requests:
+                    storage: 2Gi
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: prefetcharr-agent-pipeline-template
+  namespace: servarr
+spec:
+  params:
+    - name: repo-url
+    - name: revision
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: prefetcharr-agent-
+      spec:
+        pipelineRef:
+          name: prefetcharr-agent
+        params:
+          - name: repo-url
+            value: $(tt.params.repo-url)
+          - name: revision
+            value: $(tt.params.revision)
