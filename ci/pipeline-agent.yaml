@@ -1,0 +1,54 @@
+# ci/pipeline-agent.yaml
+# Agent pipeline: 3 parallel agents each claim and implement one beads issue.
+# Triggered when .beads/ files change in a push (new issue created).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: prefetcharr-agent
+spec:
+  params:
+    - name: repo-url
+      type: string
+    - name: revision
+      type: string
+      default: latest
+    - name: ci-framework-url
+      type: string
+      default: https://github.com/bearzibubbs/ci-framework
+    - name: ci-framework-revision
+      type: string
+      default: main
+
+  tasks:
+    - name: agent-1
+      taskRef:
+        resolver: git
+        params:
+          - {name: url, value: $(params.ci-framework-url)}
+          - {name: revision, value: $(params.ci-framework-revision)}
+          - {name: pathInRepo, value: tasks/ci-agent.yaml}
+      params:
+        - {name: repo-url, value: $(params.repo-url)}
+        - {name: revision, value: $(params.revision)}
+
+    - name: agent-2
+      taskRef:
+        resolver: git
+        params:
+          - {name: url, value: $(params.ci-framework-url)}
+          - {name: revision, value: $(params.ci-framework-revision)}
+          - {name: pathInRepo, value: tasks/ci-agent.yaml}
+      params:
+        - {name: repo-url, value: $(params.repo-url)}
+        - {name: revision, value: $(params.revision)}
+
+    - name: agent-3
+      taskRef:
+        resolver: git
+        params:
+          - {name: url, value: $(params.ci-framework-url)}
+          - {name: revision, value: $(params.ci-framework-revision)}
+          - {name: pathInRepo, value: tasks/ci-agent.yaml}
+      params:
+        - {name: repo-url, value: $(params.repo-url)}
+        - {name: revision, value: $(params.revision)}
