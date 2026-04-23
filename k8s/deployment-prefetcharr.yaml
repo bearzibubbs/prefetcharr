@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prefetcharr
+  namespace: servarr
+  labels:
+    app: prefetcharr
+    app.kubernetes.io/component: prefetcharr
+    app.kubernetes.io/instance: prefetcharr
+    app.kubernetes.io/name: prefetcharr
+    app.kubernetes.io/part-of: servarr
+    app.openshift.io/runtime-namespace: servarr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prefetcharr
+  template:
+    metadata:
+      labels:
+        app: prefetcharr
+        deployment: prefetcharr
+    spec:
+      containers:
+        - name: prefetcharr
+          # Pin to a specific short-sha after the first CI build.
+          # Update this tag and re-apply to promote a new build to prod.
+          image: quay.nekohouse.ca:8443/init/prefetcharr:placeholder-sha
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prefetcharr
+              readOnly: true
+      volumes:
+        - name: config
+          secret:
+            secretName: prefetcharr-config
+            items:
+              - key: config.toml
+                path: config.toml
+      imagePullSecrets:
+        - name: init-servarrbot-pull-secret

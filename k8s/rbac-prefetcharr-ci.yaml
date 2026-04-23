@@ -1,0 +1,30 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prefetcharr-ci-rollout
+  namespace: servarr
+  labels:
+    app: prefetcharr
+    app.kubernetes.io/part-of: servarr
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["prefetcharr-dev"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prefetcharr-ci-rollout
+  namespace: servarr
+  labels:
+    app: prefetcharr
+    app.kubernetes.io/part-of: servarr
+subjects:
+  - kind: ServiceAccount
+    name: pipeline
+    namespace: servarr
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prefetcharr-ci-rollout
